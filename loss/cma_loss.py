@@ -76,7 +76,7 @@ class CMA_Loss(nn.Module):
         
     def forward(self, cm_emb, txt_emb, img_emb, img_attn=None, txt_bert=None):
         
-        assert cm_emb.shape[0] == cm_emb.shape[1]
+        assert cm_emb.shape[0] == cm_emb.shape[1] # modify this for hard negative sampling (B, 1+K)
         assert cm_emb.shape[0] == txt_emb.shape[0]
         
         # (optional) size panalty loss
@@ -92,7 +92,7 @@ class CMA_Loss(nn.Module):
         if self.detach_target:
             txt_emb = txt_emb.detach()
         sim = torch.einsum('b d, b n d -> b n', txt_emb, rearrange(cm_emb, 'i t d -> t i d'))
-        pos_gt = torch.eye(cm_emb.shape[0], dtype=torch.bool).cuda()
+        pos_gt = torch.eye(cm_emb.shape[0], dtype=torch.bool).cuda() # cannot use this if hard negative sampling (maybe use a for loop)
         neg_gt = ~pos_gt
         
         cm_t_loss = self.loss(sim, pos_gt, neg_gt)

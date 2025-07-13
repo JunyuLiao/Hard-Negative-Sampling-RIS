@@ -54,6 +54,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
 
         with torch.cuda.amp.autocast(enabled=args.amp):
             cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert = model.forward(img, txt, txt_len) 
+            # z, Φ(x^V), x^T, f_dec(Φ(x^V)), x^V, ?
             # Use pre-extracted text embedding from external LM for sampling
             if args.pre_bertemb:
                 bertemb_list = []
@@ -296,7 +297,7 @@ def main():
     
     criterion = (CMA_Loss_Fast if args.fast_batch else CMA_Loss)(
         margin=args.margin, 
-        criterion=args.cma_criterion, 
+        criterion=args.cma_criterion, # info_nce
         mining=args.cma_mining, 
         detach_target=args.cma_detach_target,
         detach_img_target=args.cma_detach_img_target,

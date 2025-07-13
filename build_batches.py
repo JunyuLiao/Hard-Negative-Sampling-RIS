@@ -35,9 +35,13 @@ def build_coco_batches(output_dir, dataset, setname, T, input_H, input_W):
 
     n_batch = 0
     for ref in refs:
-        im_name = 'COCO_' + im_type + '_' + str(ref['image_id']).zfill(12)
+        ref_id = ref['ref_id']
+        image_id = ref['image_id']
+        ann_id = ref['ann_id']
+
+        im_name = 'COCO_' + im_type + '_' + str(image_id).zfill(12)
         im = skimage.io.imread('%s/%s/%s.jpg' % (im_dir, im_type, im_name))
-        seg = refer.Anns[ref['ann_id']]['segmentation']
+        seg = refer.Anns[ann_id]['segmentation']
         rle = cocomask.frPyObjects(seg, im.shape[0], im.shape[1])
         mask = np.max(cocomask.decode(rle), axis = 2).astype(np.float32)
 
@@ -53,18 +57,54 @@ def build_coco_batches(output_dir, dataset, setname, T, input_H, input_W):
             mask = skimage.transform.resize(mask, [resized_h, resized_w])
         if im.ndim == 2:
             im = np.tile(im[:, :, np.newaxis], (1, 1, 3))
+    
+        # Get all referring objects from the same image, excluding current one
+        other_refs_same_image = [
+            r for r in refer.imgToRefs[image_id]
+            if r != ref_id
+        ]
 
         for sentence in ref['sentences']:
             print('saving batch %d' % (n_batch + 1))
             sent = sentence['sent']
             text = preprocess_sentence(sent, vocab_dict, T)
 
+            negative_sents = []
+            for neg_ref_id in other_refs_same_image:
+                neg_ref = refer.Refs[neg_ref_id]
+                neg_sentences = neg_ref['sentences']
+                if len(neg_sentences) > 0:
+                    for neg_sentence in neg_sentences:
+                        neg_sent = neg_sentence['sent']
+                        neg_text = preprocess_sentence(neg_sent, vocab_dict, T)
+                        negative_sents.append(neg_text)
+            # Pad or truncate to fixed number of negatives (e.g., 3)
+            max_neg = 3 # TODO: change this to 1+K (K as a parameter)
+            if len(negative_sents) > 0:
+                # random select max_neg negatives from negative_sents, store in neg_text_batch
+                neg_text_batch = []
+                while len(neg_text_batch) < max_neg:
+                    neg_text_batch.append(negative_sents[np.random.randint(0, len(negative_sents))])
+            else: # sample randomly from all sentences (from other images)
+                neg_text_batch = []
+                while len(neg_text_batch) < max_neg:
+                    neg_ref = refer.Refs[np.random.choice(list(refer.Refs.keys()))]
+                    neg_sentence = neg_ref['sentences'][np.random.randint(0, len(neg_ref['sentences']))]
+                    neg_sent = neg_sentence['sent']
+                    neg_text = preprocess_sentence(neg_sent, vocab_dict, T)
+                    neg_text_batch.append(neg_text)
+                
+            # Stack into a single array
+            neg_text_batch = np.stack(neg_text_batch, axis=0)
+
             np.savez(file = data_folder + data_prefix + '_' + str(n_batch) + '.npz',
                 text_batch = text,
                 im_batch = im,
                 mask_batch = (mask > 0),
                 sent_batch = [sent],
-                im_name_batch = im_name)
+                im_name_batch = im_name,
+                neg_text_batch = neg_text_batch
+            )
             n_batch += 1
 
 

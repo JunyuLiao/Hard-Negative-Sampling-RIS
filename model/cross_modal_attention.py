@@ -160,3 +160,4 @@ class CrossModalAttentionRecon(nn.Module):
                 txt_emb = l2norm(txt_emb)
             
         return cm_feat, img_slot, txt_emb, img_feat_recon, img_feat, txt_bert
+        # z, Φ(x^V), x^T, f_dec(Φ(x^V)), x^V, ?
