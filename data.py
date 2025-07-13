@@ -39,13 +39,14 @@ class ReferDatasetBert(data.Dataset):
 
     def __getitem__(self, index):
 
-        sentence, img_id, image, label, im_name = self.get_raw_item(index)
+        sentence, img_id, image, label, im_name, neg_sents = self.get_raw_item(index)
 
         if self.transform != None:
             image = self.transform(image)
 
         target = process_caption_bert(sentence, self.tokenizer, self.drop_prob, self.train)
-        return image, target, index, img_id
+        neg_targets = [process_caption_bert(s, self.tokenizer, self.drop_prob, self.train) for s in neg_sents]
+        return image, target, index, img_id, neg_targets
     
     def get_raw_item(self, index):
         datafiles = np.load(self.data_list[index])
@@ -58,7 +59,9 @@ class ReferDatasetBert(data.Dataset):
         sentence = datafiles["sent_batch"][0]
         im_name= str(datafiles['im_name_batch'])
         img_id = osp.basename(self.data_list[index]).split(".")[0].split("_")[-1]
-        return sentence, img_id, image, label, im_name
+
+        neg_sents = datafiles["neg_sent_batch"]
+        return sentence, img_id, image, label, im_name, neg_sents
         
 
 class ReferDatasetBertTexts(data.Dataset):
@@ -257,19 +260,30 @@ def collate_fn(data):
     """
     # Sort a data list by sentence length
     data.sort(key=lambda x: len(x[1]), reverse=True)
-    images, sentences, ids, img_ids = zip(*data)
+    images, sentences, ids, img_ids, neg_sents = zip(*data)
 
     # Merge images (convert tuple of 3D tensor to 4D tensor)
     images = torch.stack(images, 0)
 
     # Merge sentences (convert tuple of 1D tensor to 2D tensor)
     cap_lengths = torch.tensor([len(cap) for cap in sentences])
-    targets = torch.zeros(len(sentences), max(cap_lengths)).long()
+    neg_cap_lengths = torch.tensor([torch.tensor([len(neg_cap) for neg_cap in neg_sent]) for neg_sent in neg_sents])
+    max_length = max(neg_cap_lengths.max().item(), max(cap_lengths))
+    targets = torch.zeros(len(sentences), max_length).long()
     for i, cap in enumerate(sentences):
         end = cap_lengths[i]
         targets[i, :end] = cap[:end]
 
-    return images, targets, cap_lengths, ids
+    neg_targets = []
+    for i, neg_sent in enumerate(neg_sents):
+        neg_target = torch.zeros(len(neg_sent), max_length).long()
+        for j, cap in enumerate(neg_sent):
+            end = neg_cap_lengths[i][j]
+            neg_target[j, :end] = cap[:end]
+        neg_targets.append(neg_target)
+    neg_targets = torch.stack(neg_targets, 0)
+
+    return images, targets, cap_lengths, ids, neg_targets, neg_cap_lengths
 
 
 def collate_fn_fast(data):

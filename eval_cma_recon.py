@@ -47,7 +47,7 @@ def encode_data(model, data_loader, crop_size, img_num_embeds, embed_dim, args, 
         
     for i, data in tqdm(enumerate(data_loader)):
         img_len = None
-        img, txt, txt_len, ids = data
+        img, txt, txt_len, ids, _ = data
         img, txt, txt_len = img.cuda(), txt.cuda(), txt_len.cuda()
         
         hdlr1 = model.encoders.img_enc.set_pred_module.agg.agg_blocks[0][0].fn.attn_holder.\

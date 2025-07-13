@@ -74,9 +74,10 @@ class CMA_Loss(nn.Module):
         loss = F.cross_entropy(logit, label)
         return loss
         
-    def forward(self, cm_emb, txt_emb, img_emb, img_attn=None, txt_bert=None):
+    def forward(self, cm_emb, txt_emb, img_emb, img_attn=None, txt_bert=None, hard_neg=0):
         
-        assert cm_emb.shape[0] == cm_emb.shape[1] # modify this for hard negative sampling (B, 1+K)
+        if hard_neg ==0:
+            assert cm_emb.shape[0] == cm_emb.shape[1]
         assert cm_emb.shape[0] == txt_emb.shape[0]
         
         # (optional) size panalty loss
@@ -84,7 +85,7 @@ class CMA_Loss(nn.Module):
             if (self.size_p_loss is not None) else (0, {})
 
         # (optional) i_t loss by image slots and txt embeddings
-        i_t_loss, i_t_losses = self.i_t_loss(img_emb, txt_emb, img_emb, txt_emb) \
+        i_t_loss, i_t_losses = self.i_t_loss(img_emb, txt_emb[:,0,:], img_emb, txt_emb[:,0,:]) \
             if (self.i_t_loss is not None) else (0, {})
 
         #  finding marching pair using text

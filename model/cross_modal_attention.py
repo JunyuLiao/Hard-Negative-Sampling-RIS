@@ -138,19 +138,34 @@ class CrossModalAttentionRecon(nn.Module):
 
         self.txt_l2 = args.info_txt_l2
         
-    def forward(self, images, sentences, txt_len):
+    def forward(self, images, sentences, txt_len, neg_txts, neg_txts_len, hard_neg = 0):
         with torch.cuda.amp.autocast(enabled=self.amp):
             img_slot, img_feat, txt_emb, txt_attn, img_residual, txt_residual, txt_bert =\
                 self.encoders(images, sentences, txt_len)
+            # img_slot: (B, K, D), img_feat: (B, 576, 384)?, txt_emb: (B, 1, D)
+
+            if hard_neg == 1: # add more cases in the future
+                for i in range(neg_txts.shape[1]):
+                    # neg_txt_emb = self.encoders.txt_enc(neg_txts[i], neg_txts_len[i])
+                    _, _, neg_txt_emb, _, _, _, _ =\
+                        self.encoders(images, neg_txts[:, i], neg_txts_len[:, i])
+                    txt_emb = torch.cat((txt_emb, neg_txt_emb), dim=1)
+                # now txt_emb is of shape (B, 1+N, D)
+
+
             img_feat_recon = self.decoder(img_slot)
 
             if self.cma_self is not None:
                 img_slot = self.cma_self(img_slot)
 
-            cm_feat = self.cma(
-                repeat(txt_emb, 'b n d -> repeat b (n d)', repeat=img_slot.shape[0]), 
-                context=img_slot
-            )
+            if hard_neg == 0:
+                cm_feat = self.cma(
+                    repeat(txt_emb, 'b n d -> repeat b (n d)', repeat=img_slot.shape[0]), 
+                    context=img_slot
+                )
+            else: # for now only case 1
+                cm_feat = self.cma(txt_emb, context=img_slot)
+                # cm_feat: (B, 1+N, D)
 
             if self.last_mlp is not None:
                 cm_feat = self.last_mlp(cm_feat)

@@ -25,7 +25,7 @@ from eval_cma_recon import encode_data, compute_mask_IU
 
 
 def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, recon_weight, 
-        optimizer, scaler, recon_warm, args, scheduler = None, bertemb_dict = None):
+        optimizer, scaler, recon_warm, args, scheduler = None, bertemb_dict = None, hard_neg=0):
     # switch to train mode
     model.train()
     if args.bn_eval:
@@ -49,17 +49,18 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
             img, txt, txt_len, recovery, num_txts_per_img = \
                 img.cuda(), txt.cuda(), txt_len.cuda(), recovery.cuda(), num_txts_per_img.cuda()
         else:
-            img, txt, txt_len, ids = data
-            img, txt, txt_len = img.cuda(), txt.cuda(), txt_len.cuda()
+            img, txt, txt_len, ids, neg_txts, neg_txts_len = data
+            img, txt, txt_len, neg_txts, neg_txts_len = img.cuda(), txt.cuda(), txt_len.cuda(), neg_txts.cuda(), neg_txts_len.cuda()
 
         with torch.cuda.amp.autocast(enabled=args.amp):
-            cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert = model.forward(img, txt, txt_len) 
+            cm_feat, img_emb, txt_emb, img_feat_recon, img_feat, txt_bert = model.forward(img, txt, txt_len, neg_txts, neg_txts_len, hard_neg) 
             # z, Φ(x^V), x^T, f_dec(Φ(x^V)), x^V, ?
+            # cm_feat: (B, B, D), img_emb: (B, K, D), txt_emb: (B, 1 (or 1+K for hard_neg), D), img_feat_recon/img_feat: (B, 576, 384(pixel))?, txt_bert: (B, 768)
             # Use pre-extracted text embedding from external LM for sampling
             if args.pre_bertemb:
                 bertemb_list = []
                 for i, idx in enumerate(ids):
-                    sentence, _, _, _, _ = data_loader.dataset.get_raw_item(idx)
+                    sentence, _, _, _, _, _ = data_loader.dataset.get_raw_item(idx)
                     bertemb_list.append(bertemb_dict[sentence])
                     txt_bert = torch.stack(bertemb_list)
 
@@ -70,7 +71,7 @@ def train(epoch, total_iter, data_loader, model, criterion, recon_criterion, rec
                     txt_emb, cm_feat = txt_emb[recovery], cm_feat[:, recovery, :]
                     loss, loss_dict = criterion(cm_feat, txt_emb, num_txts_per_img, txt_bert=txt_bert)
                 else:
-                    loss, loss_dict = criterion(cm_feat, txt_emb, img_emb, txt_bert=txt_bert)
+                    loss, loss_dict = criterion(cm_feat, txt_emb, img_emb, txt_bert=txt_bert, hard_neg = hard_neg)
             
             recon_loss = recon_criterion(img_feat_recon, img_feat.detach())
             loss_dict['recon'] = recon_loss
@@ -123,7 +124,7 @@ def validation(epoch, data_loader, model, criterion, recon_criterion, recon_weig
         losses_dict['recon'] = AverageMeter()
             
         for _, data in tqdm(enumerate(data_loader)):
-            img, txt, txt_len, _ = data
+            img, txt, txt_len, _, _, _ = data
             img, txt, txt_len = img.cuda(), txt.cuda(), txt_len.cuda()
             
             with torch.cuda.amp.autocast(enabled=args.amp):
@@ -168,7 +169,7 @@ def validation(epoch, data_loader, model, criterion, recon_criterion, recon_weig
         
         t= tqdm(range(len(dataset)), desc='Evaluating', leave=True)
         for i in t:
-            _, raw_img_id, _, raw_label, _ =  dataset.get_raw_item(i)
+            _, raw_img_id, _, raw_label, _, _ =  dataset.get_raw_item(i)
             feat_map_size = int(args.crop_size / 16)
             
             cm_a = cm_a_map[i]
@@ -368,7 +369,8 @@ def main():
             epoch < args.recon_warm_epoch, 
             args, 
             scheduler=lr_scheduler if args.lr_scheduler == 'cosine' else None, 
-            bertemb_dict = bertemb_dict
+            bertemb_dict = bertemb_dict,
+            hard_neg = 0
         )
         
         # Compute validation loss
