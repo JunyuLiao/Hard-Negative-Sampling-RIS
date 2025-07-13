@@ -148,3 +148,5 @@ check_num_sent.py
 *backup*.py
 
 base_ckpts/
+
+script/

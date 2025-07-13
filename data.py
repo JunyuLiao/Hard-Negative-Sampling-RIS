@@ -41,7 +41,7 @@ class ReferDatasetBert(data.Dataset):
 
         sentence, img_id, image, label, im_name = self.get_raw_item(index)
 
-        if self.transform is not None:
+        if self.transform != None:
             image = self.transform(image)
 
         target = process_caption_bert(sentence, self.tokenizer, self.drop_prob, self.train)
@@ -100,10 +100,10 @@ class ReferDatasetBertTexts(data.Dataset):
 
         sentences, img_id, image, label, _, num_sent = self.get_raw_item(index)
 
-        if self.transform is not None:
+        if self.transform != None:
             image = self.transform(image)
         
-        if self.num_texts is not 0:
+        if self.num_texts != 0:
             sentences = random.sample(sentences, self.num_texts) if len(sentences) > self.num_texts else sentences
         targets = [process_caption_bert(s, self.tokenizer, self.drop_prob, self.train) for s in sentences]
         return image, targets, index, img_id
@@ -170,7 +170,7 @@ class PhraseDatasetBert(data.Dataset):
 
         sentence, img_id, image, label, _ = self.get_raw_item(index)
 
-        if self.transform is not None:
+        if self.transform != None:
             image = self.transform(image)
 
         target = process_caption_bert(sentence, self.tokenizer, self.drop_prob, self.train)

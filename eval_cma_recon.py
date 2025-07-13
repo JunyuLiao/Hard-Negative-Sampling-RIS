@@ -163,6 +163,17 @@ def save_head_attn_map(image, head_a_map, feat_map_size, raw_label, raw_img_id, 
     a_map_fname = 'head_amap/{}_slot{}_head{}.png'.format(raw_img_id, a, head)
     Image.fromarray(img_and_amap).save(os.path.join(seg_path, a_map_fname))
 
+def save_mask_image(image, img_a_map_for_slot, feat_map_size, raw_label, raw_img_id, raw_sentence, seg_path):
+    a_map = img_a_map_for_slot.reshape(1, feat_map_size, feat_map_size)
+    a_map = transforms.functional.resize(a_map, list(raw_label.shape)).squeeze()
+    a_map = ((a_map - a_map.min()) / (a_map.max() - a_map.min()+1e-9)).cpu().numpy()
+    hard_pred = (a_map >=args.pseudo_threshold)
+    hard_pred = cv2.applyColorMap(np.uint8(hard_pred * 255), cv2.COLORMAP_JET)[:, :, ::-1]
+    image = transforms.functional.resize(image, list(raw_label.shape))
+    img_and_amap = cv2.addWeighted(np.uint8(image.permute(1, 2, 0) * 255), 0.3, hard_pred, 0.7, 0)
+    a_map_fname = 'mask/{}_{}.png'.format(raw_img_id, raw_sentence)
+    Image.fromarray(img_and_amap).save(os.path.join(seg_path, a_map_fname))
+
 def eval_seg(model, args, split='val'):
     print('Loading dataset')
     data_loader = get_test_loader(args) if split == 'val' else get_train_loader(args)
@@ -193,6 +204,8 @@ def eval_seg(model, args, split='val'):
         os.makedirs(os.path.join(seg_path, '{}_image'.format(split)))
     if not os.path.exists(os.path.join(seg_path, '{}_label'.format(split))):
         os.makedirs(os.path.join(seg_path, '{}_label'.format(split)))
+    if not os.path.exists(os.path.join(seg_path, 'mask')):
+        os.makedirs(os.path.join(seg_path, 'mask'))
         
     if 'res' in args.img_backbone:
         inv_normalize = transforms.Normalize(
@@ -265,12 +278,16 @@ def eval_seg(model, args, split='val'):
                         , feat_map_size, raw_label, raw_img_id, top_cm_idx, os.path.join(seg_path,'min_cm')
                         , cm_min_I, cm_min_U, min_cm_mIoU, min_cm_prec, min_cm_recall, is_save=False)
 
-        if i < 1:
+        if i < 20:
             Image.fromarray(np.uint8(image.permute(1, 2, 0) * 255)).save(os.path.join(seg_path, '{}_image'.format(split), raw_img_id+'.png'))
-            for a in range(img_a_map.shape[2]):
-                img_a_map_for_slot = img_a_map[i, -1, a]
-                cm_weight = cm_a[a]
-                save_slot_attn_map(image, img_a_map_for_slot, feat_map_size, raw_label, raw_img_id, a, seg_path, cm_weight, raw_sentence)
+            mask_map = img_a_map[i, -1, :]
+            mask_map = (cm_a.unsqueeze(1) * avg_a_map).sum(dim=0)
+            save_mask_image(image, mask_map, feat_map_size, raw_label, raw_img_id, raw_sentence, seg_path)
+            if i < 1:
+                for a in range(img_a_map.shape[2]):
+                    img_a_map_for_slot = img_a_map[i, -1, a]
+                    cm_weight = cm_a[a]
+                    save_slot_attn_map(image, img_a_map_for_slot, feat_map_size, raw_label, raw_img_id, a, seg_path, cm_weight, raw_sentence)
 
         if i < 10 and args.save_head_map:
             for a, h in [(a, h) for a in range(img_a_map.shape[2]) for h in range(head_a_map.shape[1])]:

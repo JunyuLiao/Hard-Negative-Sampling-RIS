@@ -259,7 +259,7 @@ def main():
     args = verify_input_args(parser.parse_args())
     set_seed(args.seed)
     if not args.no_wandb:
-        wandb.init(project='weak_ref_seg', name = args.remark, group=args.wandb_group, entity='ise', config=args) 
+        wandb.init(project='weak_ref_seg', name = args.remark, group=args.wandb_group, entity='jy204659-hong-kong-university-of-science-and-technology', config=args) 
         wandb.config.update(args) 
     log_dir = osp.join('./logs', args.remark)
     if not osp.exists(log_dir):
@@ -280,6 +280,13 @@ def main():
             model = convert_model(model)
         model = model.cuda()
         cudnn.benchmark = True
+
+    if args.ckpt != '':
+        assert os.path.isfile(args.ckpt)
+        # Reproduced weight
+        state_dict = torch.load(args.ckpt)['model']
+        model.load_state_dict(state_dict)
+        print("check point loaded from %s" % args.ckpt)
         
     wandb.watch(models=model, log_freq=1000, log='gradients') if not args.no_wandb else None
             
