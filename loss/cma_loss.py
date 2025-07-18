@@ -66,37 +66,53 @@ class CMA_Loss(nn.Module):
     
     def info_nce_loss(self, sim, pos_gt, neg_gt):
         ap = sim[pos_gt].reshape(sim.shape[0], 1) / self.temperature
-        an = sim[neg_gt].reshape(
-            sim.shape[0], sim.shape[1]-1
-        ) / self.temperature
+        an = sim[neg_gt].reshape(sim.shape[0], sim.shape[1]-1) / self.temperature
         logit = torch.cat([ap, an], dim=-1)
-        label = torch.zeros(logit.shape[0], dtype=torch.long).cuda()
+        label = torch.zeros(logit.shape[0], dtype=torch.long).cuda() # first colum denotes the correct class
         loss = F.cross_entropy(logit, label)
         return loss
         
     def forward(self, cm_emb, txt_emb, img_emb, img_attn=None, txt_bert=None, hard_neg=0):
+        # img_emb: (B, K, D), cm_emb: (B, B, D) or (B, 1+N, D), txt_emb: (B, 1, D) or (B, 1+N, D)
         
-        if hard_neg ==0:
-            assert cm_emb.shape[0] == cm_emb.shape[1]
         assert cm_emb.shape[0] == txt_emb.shape[0]
         
         # (optional) size panalty loss
         size_p_loss, size_p_losses = self.size_p_loss(img_attn) \
             if (self.size_p_loss is not None) else (0, {})
 
-        # (optional) i_t loss by image slots and txt embeddings
-        i_t_loss, i_t_losses = self.i_t_loss(img_emb, txt_emb[:,0,:], img_emb, txt_emb[:,0,:]) \
-            if (self.i_t_loss is not None) else (0, {})
+        if hard_neg == 0:
+            assert cm_emb.shape[0] == cm_emb.shape[1]
 
-        #  finding marching pair using text
-        txt_emb = rearrange(txt_emb, 'b n d -> b (n d)')
-        if self.detach_target:
-            txt_emb = txt_emb.detach()
-        sim = torch.einsum('b d, b n d -> b n', txt_emb, rearrange(cm_emb, 'i t d -> t i d'))
-        pos_gt = torch.eye(cm_emb.shape[0], dtype=torch.bool).cuda() # cannot use this if hard negative sampling (maybe use a for loop)
-        neg_gt = ~pos_gt
+            # (optional) i_t loss by image slots and txt embeddings
+            i_t_loss, i_t_losses = self.i_t_loss(img_emb, txt_emb, img_emb, txt_emb) \
+                if (self.i_t_loss is not None) else (0, {})
+            
+            #  finding marching pair using text
+            txt_emb = rearrange(txt_emb, 'b n d -> b (n d)') # (B, D)
+            if self.detach_target:
+                txt_emb = txt_emb.detach()
+            sim = torch.einsum('b d, b n d -> b n', txt_emb, rearrange(cm_emb, 'i t d -> t i d'))
+            pos_gt = torch.eye(cm_emb.shape[0], dtype=torch.bool).cuda() # cannot use this if hard negative sampling (maybe use a for loop)
+            neg_gt = ~pos_gt
+            
+            cm_t_loss = self.loss(sim, pos_gt, neg_gt)
+        elif hard_neg == 1:
+            # (optional) i_t loss by image slots and txt embeddings
+            i_t_loss, i_t_losses = self.i_t_loss(img_emb, txt_emb[:,0], img_emb, txt_emb[:,0]) \
+                if (self.i_t_loss is not None) else (0, {})
+            
+            #  finding marching pair using text
+            if self.detach_target:
+                txt_emb = txt_emb.detach()
+            sim = torch.einsum('b n d, b d -> b n', txt_emb, cm_emb[:, 0, :]) # (B, 1+N)
+            logit = sim / self.temperature
+            label = torch.zeros(logit.shape[0], dtype=torch.long).cuda() # first column denotes the correct class
+            cm_t_loss = F.cross_entropy(logit, label)
+        else:
+            raise NotImplementedError("Hard negative sampling not implemented for this case")
+
         
-        cm_t_loss = self.loss(sim, pos_gt, neg_gt)
         
         # finding matching pair using avg pooled slot
         cm_i_loss = .0

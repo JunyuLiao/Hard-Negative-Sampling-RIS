@@ -257,26 +257,35 @@ def collate_fn(data):
                         (batch_size, padded_length, 3, 256, 256).
         targets: torch tensor of shape (batch_size, padded_length).
         lengths: list; valid length for each padded sentence.
+        neg_targets: torch tensor of shape (batch_size, padded_length, num_neg_sents).
+        neg_lengths: list; valid length for each padded negative sentence, of each corresponding image.
     """
     # Sort a data list by sentence length
     data.sort(key=lambda x: len(x[1]), reverse=True)
     images, sentences, ids, img_ids, neg_sents = zip(*data)
+
+    # check if all neg_sent in neg_sents have the same size
+    uni_len = len(neg_sents[0])
+    assert all(len(neg_sent) == uni_len for neg_sent in neg_sents), "All neg_sents should have the same number of sentences"
 
     # Merge images (convert tuple of 3D tensor to 4D tensor)
     images = torch.stack(images, 0)
 
     # Merge sentences (convert tuple of 1D tensor to 2D tensor)
     cap_lengths = torch.tensor([len(cap) for cap in sentences])
-    neg_cap_lengths = torch.tensor([torch.tensor([len(neg_cap) for neg_cap in neg_sent]) for neg_sent in neg_sents])
-    max_length = max(neg_cap_lengths.max().item(), max(cap_lengths))
+    all_neg_caps = [neg_cap for neg_sent in neg_sents for neg_cap in neg_sent]
+    all_neg_cap_lengths = torch.tensor([len(neg_cap) for neg_cap in all_neg_caps])
+    neg_cap_lengths = torch.split(all_neg_cap_lengths, [len(neg_sent) for neg_sent in neg_sents])
+    max_length = max(cap_lengths.max().item(), neg_cap_lengths.max().item())
     targets = torch.zeros(len(sentences), max_length).long()
     for i, cap in enumerate(sentences):
         end = cap_lengths[i]
         targets[i, :end] = cap[:end]
 
-    neg_targets = []
+    neg_targets = [] # list of tensors
+
     for i, neg_sent in enumerate(neg_sents):
-        neg_target = torch.zeros(len(neg_sent), max_length).long()
+        neg_target = torch.zeros(uni_len, max_length).long()
         for j, cap in enumerate(neg_sent):
             end = neg_cap_lengths[i][j]
             neg_target[j, :end] = cap[:end]
